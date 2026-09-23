@@ -16,6 +16,8 @@ export type PiFlavor = {
   resumeFlag: string;
   /** Flags that strip tools, skills, and project context for one-shot jobs. */
   isolateFlags: readonly string[];
+  /** `--mode` for the user-facing session; probes and text jobs stay on `rpc`. */
+  liveMode: "rpc" | "rpc-ui";
   /** Read-only tools exposed while the shared composer is in Plan mode. */
   planTools: readonly string[];
   /** Child id for the shared catalog probe. */
@@ -30,6 +32,7 @@ export const PI_FLAVOR: PiFlavor = {
   resolveBinary: resolvePiBinary,
   resumeFlag: "--session",
   isolateFlags: ["--no-tools", "--no-skills", "--no-context-files"],
+  liveMode: "rpc",
   planTools: ["read", "grep", "find", "ls"],
   probeChildId: "monocode-pi-probe",
   textChildId: "monocode-pi-text",
@@ -38,7 +41,8 @@ export const PI_FLAVOR: PiFlavor = {
 /**
  * omp renamed two of Pi's flags: sessions resume through `--resume` (Pi uses
  * `--session`), and project context is stripped with `--no-rules` (Pi uses
- * `--no-context-files`). Verified against omp 18.0.6 `--help`.
+ * `--no-context-files`). Verified against omp 18.0.6 `--help`. Live sessions
+ * run `--mode rpc-ui`, which registers the `ask` tool over extension UI frames.
  */
 export const OMP_FLAVOR: PiFlavor = {
   id: "omp",
@@ -46,7 +50,8 @@ export const OMP_FLAVOR: PiFlavor = {
   resolveBinary: resolveOmpBinary,
   resumeFlag: "--resume",
   isolateFlags: ["--no-tools", "--no-skills", "--no-rules"],
-  planTools: ["read", "grep", "glob", "lsp"],
+  liveMode: "rpc-ui",
+  planTools: ["read", "grep", "glob", "lsp", "ask"],
   probeChildId: "monocode-omp-probe",
   textChildId: "monocode-omp-text",
 };

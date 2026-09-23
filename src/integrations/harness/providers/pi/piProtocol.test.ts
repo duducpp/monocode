@@ -78,12 +78,18 @@ describe("buildPiSpawnArgs", () => {
       "--tools",
       "read,grep,find,ls",
     ]);
-    expect(buildPiSpawnArgs(OMP_FLAVOR, { plan: true })).toEqual([
+    expect(buildPiSpawnArgs(OMP_FLAVOR, { plan: true, live: true })).toEqual([
       "--mode",
-      "rpc",
+      "rpc-ui",
       "--tools",
-      "read,grep,glob,lsp",
+      "read,grep,glob,lsp,ask",
     ]);
+  });
+
+  it("enables interactive tools only on omp's live session", () => {
+    expect(buildPiSpawnArgs(OMP_FLAVOR, { live: true })[1]).toBe("rpc-ui");
+    expect(buildPiSpawnArgs(OMP_FLAVOR, { noSession: true })[1]).toBe("rpc");
+    expect(buildPiSpawnArgs(PI_FLAVOR, { live: true })[1]).toBe("rpc");
   });
 
   it("uses omp's renamed resume and context flags", () => {

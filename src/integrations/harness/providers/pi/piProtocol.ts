@@ -37,12 +37,17 @@ export type PiImage = {
   mimeType: string;
 };
 
+/** omp `ask` fallback row that opens a free-text editor (tools/ask.ts). */
+export const OMP_OTHER_OPTION = "Other (type your own)";
+
 export type PiExtensionUiRequest =
   | {
       id: string;
       method: "select";
       title: string;
       options: string[];
+      /** omp `optionDetails`, index-aligned with `options`. */
+      descriptions?: (string | undefined)[];
     }
   | {
       id: string;
@@ -145,9 +150,11 @@ export function buildPiSpawnArgs(
     /** Titles and other one-shot prompts: no tools, skills, or project context. */
     isolated?: boolean;
     plan?: boolean;
+    /** The user-facing chat session; omp enables its interactive tools here. */
+    live?: boolean;
   },
 ): string[] {
-  const args = ["--mode", "rpc"];
+  const args = ["--mode", input.live ? flavor.liveMode : "rpc"];
   if (input.isolated || input.noSession) args.push("--no-session");
   if (input.isolated || input.noExtensions) args.push("--no-extensions");
   if (input.isolated) {
@@ -271,11 +278,21 @@ export function parseExtensionUiRequest(
     const options = Array.isArray(rec.options)
       ? rec.options.filter((item): item is string => typeof item === "string")
       : [];
+    const details = Array.isArray(rec.optionDetails)
+      ? rec.optionDetails
+      : undefined;
     return {
       id,
       method,
       title: stringField(rec, "title") ?? "Choose an option",
       options,
+      ...(details
+        ? {
+            descriptions: options.map((_, index) =>
+              stringField(asRecord(details[index]), "description"),
+            ),
+          }
+        : {}),
     };
   }
   if (method === "confirm") {

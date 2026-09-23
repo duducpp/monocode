@@ -386,7 +386,7 @@ describe("OMP command lifecycle over the real RPC multiplexer", () => {
     expect(transport.spawnChild).toHaveBeenCalledWith(
       "omp-test",
       "/fake/omp",
-      ["--mode", "rpc"],
+      ["--mode", "rpc-ui"],
       "/repo",
     );
   });
@@ -749,6 +749,58 @@ describe("OMP workflow dialogs", () => {
       await running.turn;
     },
   );
+
+  it("folds ask's Other row and follow-up editor into one form", async () => {
+    const running = await started();
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "ask",
+      method: "select",
+      title: "Which database?",
+      options: ["Postgres", "Other (type your own)"],
+      optionDetails: [{ description: "Relational" }, {}],
+    });
+    const question = events.find((e) => e.type === "question.asked");
+    expect(question?.questions[0]).toMatchObject({
+      allowCustom: true,
+      options: [{ id: "0", label: "Postgres", description: "Relational" }],
+    });
+    respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
+      kind: "answered",
+      answers: { ask: ["__custom__"] },
+      custom: { ask: "SQLite" },
+    });
+    await vi.waitFor(() =>
+      expect(transport.requests.at(-1)?.command).toEqual({
+        type: "extension_ui_response",
+        id: "ask",
+        value: "Other (type your own)",
+      }),
+    );
+    const asked = events.filter((e) => e.type === "question.asked").length;
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "other",
+      method: "editor",
+      title: "Which database?",
+    });
+    await vi.waitFor(() =>
+      expect(transport.requests.at(-1)?.command).toEqual({
+        type: "extension_ui_response",
+        id: "other",
+        value: "SQLite",
+      }),
+    );
+    expect(events.filter((e) => e.type === "question.asked")).toHaveLength(
+      asked,
+    );
+    frame("omp-test", {
+      type: "prompt_result",
+      id: running.request.id,
+      agentInvoked: false,
+    });
+    await running.turn;
+  });
 
   it("resolves pending questions when the user stops a command", async () => {
     const running = await started();

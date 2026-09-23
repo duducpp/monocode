@@ -36,6 +36,7 @@ import {
   isPiThinkingLevel,
   mergeToolInput,
   needsExtensionUiReply,
+  OMP_OTHER_OPTION,
   parseExtensionUiRequest,
   parsePiModelRef,
   piNativeId,
@@ -96,6 +97,8 @@ type Live = {
     number,
     { id: string; resolve: (reply: UserQuestionReply) => void }
   >;
+  /** Text typed next to omp's `ask` options; answers its follow-up editor. */
+  customInput?: string;
   availableCommands?: NativeCommand[];
   promptId: string | null;
   nextApprovalUiId: number;
@@ -560,6 +563,7 @@ async function startLive(
       resume,
       model: modelRef ? native : undefined,
       plan: input.intent === "plan",
+      live: true,
     }),
     input.cwd,
   );
@@ -1028,6 +1032,19 @@ async function handleExtensionUi(
       request.method === "input" ||
       request.method === "editor")
   ) {
+    if (request.method === "editor" && live.customInput !== undefined) {
+      const value = live.customInput;
+      live.customInput = undefined;
+      await writeChild(
+        sessionId,
+        JSON.stringify({ type: "extension_ui_response", id: request.id, value }),
+      ).catch(() => undefined);
+      return;
+    }
+    // omp's `ask` fallback offers "Other" as a select row, then opens an
+    // editor. Fold both into one form: a free-text field instead of the row.
+    const hasOther =
+      request.method === "select" && request.options.includes(OMP_OTHER_OPTION);
     const uiId = live.nextApprovalUiId++;
     const replyPromise = new Promise<UserQuestionReply>((resolve) => {
       live.questions.set(uiId, { id: request.id, resolve });
@@ -1041,17 +1058,24 @@ async function handleExtensionUi(
           id: request.id,
           prompt: extensionUiTitle(request),
           multiSelect: false,
-          allowCustom: request.method !== "select",
+          allowCustom: request.method !== "select" || hasOther,
           options:
             request.method === "select"
-              ? request.options.map((label, index) => ({
-                  id: String(index),
-                  label: extensionUiTitle({
-                    id: request.id,
-                    method: "notify",
-                    title: label,
-                  }),
-                }))
+              ? request.options.flatMap((label, index) => {
+                  if (label === OMP_OTHER_OPTION) return [];
+                  const description = request.descriptions?.[index];
+                  return [
+                    {
+                      id: String(index),
+                      label: extensionUiTitle({
+                        id: request.id,
+                        method: "notify",
+                        title: label,
+                      }),
+                      ...(description ? { description } : {}),
+                    },
+                  ];
+                })
               : [],
         },
       ],
@@ -1060,12 +1084,17 @@ async function handleExtensionUi(
     live.questions.delete(uiId);
     let value: string | undefined;
     if (reply.kind === "answered") {
+      const text = reply.custom?.[request.id];
       if (request.method === "select") {
         const selected = reply.answers[request.id]?.[0];
-        if (selected !== undefined && /^\d+$/.test(selected))
+        if (selected !== undefined && /^\d+$/.test(selected)) {
           value = request.options[Number(selected)];
+        } else if (hasOther && text) {
+          value = OMP_OTHER_OPTION;
+          live.customInput = text;
+        }
       } else {
-        value = reply.custom?.[request.id];
+        value = text;
       }
     }
     live.onEvent({
