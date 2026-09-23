@@ -23,8 +23,10 @@ macOS, Linux, and Windows are supported targets. On Debian/Ubuntu, `npm run setu
 
 ```bash
 npm install
-npm run tauri dev
+npm run tauri:dev
 ```
+
+`tauri:dev` runs under its own app identifier, so the dev build keeps separate data and can run next to an installed MonoCode.
 
 One provider is enough. MonoCode probes for each CLI at startup and disables the ones it can’t find, with a hint about how to install them, so a missing Codex doesn’t stop you from working on anything else.
 
