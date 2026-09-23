@@ -59,6 +59,8 @@ export type PiExtensionUiRequest =
       id: string;
       method: "input" | "editor";
       title: string;
+      /** omp opens its `ask` "Other" editor with `promptStyle: true`. */
+      promptStyle?: boolean;
     }
   | {
       id: string;
@@ -304,7 +306,12 @@ export function parseExtensionUiRequest(
     };
   }
   if (method === "input" || method === "editor") {
-    return { id, method, title: stringField(rec, "title") ?? method };
+    return {
+      id,
+      method,
+      title: stringField(rec, "title") ?? method,
+      ...(rec.promptStyle === true ? { promptStyle: true } : {}),
+    };
   }
   if (
     method === "notify" ||

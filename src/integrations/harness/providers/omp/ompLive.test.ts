@@ -783,6 +783,7 @@ describe("OMP workflow dialogs", () => {
       id: "other",
       method: "editor",
       title: "Which database?",
+      promptStyle: true,
     });
     await vi.waitFor(() =>
       expect(transport.requests.at(-1)?.command).toEqual({
@@ -793,6 +794,55 @@ describe("OMP workflow dialogs", () => {
     );
     expect(events.filter((e) => e.type === "question.asked")).toHaveLength(
       asked,
+    );
+    frame("omp-test", {
+      type: "prompt_result",
+      id: running.request.id,
+      agentInvoked: false,
+    });
+    await running.turn;
+  });
+
+  it("drops Other text when omp skips ask's editor", async () => {
+    const running = await started();
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "ask",
+      method: "select",
+      title: "Which database?",
+      options: ["Postgres", "Other (type your own)"],
+    });
+    const question = events.find((e) => e.type === "question.asked");
+    respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
+      kind: "answered",
+      answers: { ask: ["__custom__"] },
+      custom: { ask: "SQLite" },
+    });
+    await vi.waitFor(() =>
+      expect(transport.requests.at(-1)?.command).toMatchObject({
+        id: "ask",
+        value: "Other (type your own)",
+      }),
+    );
+    // The ask aborted before its editor; a later editor must reach the user.
+    for (const id of ["unrelated", "later"]) {
+      frame("omp-test", {
+        type: "extension_ui_request",
+        id,
+        method: id === "unrelated" ? "input" : "editor",
+        title: "Next",
+        promptStyle: true,
+      });
+    }
+    await vi.waitFor(() =>
+      expect(
+        events
+          .filter((e) => e.type === "question.asked")
+          .map((e) => e.questions[0]?.id),
+      ).toEqual(["ask", "unrelated", "later"]),
+    );
+    expect(transport.requests.map((r) => r.command)).not.toContainEqual(
+      expect.objectContaining({ value: "SQLite" }),
     );
     frame("omp-test", {
       type: "prompt_result",

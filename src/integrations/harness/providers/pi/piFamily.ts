@@ -1018,6 +1018,12 @@ async function handleExtensionUi(
     return;
   }
 
+  // Text typed next to ask's options only answers the editor omp opens right
+  // after our "Other" reply. omp skips that editor when the ask aborts, so any
+  // other request (or turn end) drops the text instead of misrouting it.
+  const otherText = live.customInput;
+  live.customInput = undefined;
+
   if (live.cancelled || live.muteUpdates) {
     await writeChild(
       sessionId,
@@ -1032,12 +1038,18 @@ async function handleExtensionUi(
       request.method === "input" ||
       request.method === "editor")
   ) {
-    if (request.method === "editor" && live.customInput !== undefined) {
-      const value = live.customInput;
-      live.customInput = undefined;
+    if (
+      request.method === "editor" &&
+      request.promptStyle &&
+      otherText !== undefined
+    ) {
       await writeChild(
         sessionId,
-        JSON.stringify({ type: "extension_ui_response", id: request.id, value }),
+        JSON.stringify({
+          type: "extension_ui_response",
+          id: request.id,
+          value: otherText,
+        }),
       ).catch(() => undefined);
       return;
     }
@@ -1287,6 +1299,7 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
   if (!live.activeTurn && !live.turnDone) return;
   live.turnEndPending = false;
   live.activeTurn = false;
+  live.customInput = undefined;
   for (const event of extraEvents) live.onEvent(event);
   const done = live.turnDone;
   const failed = live.turnFailed;
