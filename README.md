@@ -51,8 +51,10 @@ Need Node.js 20+ and a current stable Rust toolchain. On Linux, ensure standard 
 
 ```bash
 npm install
-npm run tauri dev
+npm run tauri:dev
 ```
+
+`tauri:dev` uses `src-tauri/tauri.dev.conf.json` (identifier `com.monocode.desktop.dev`), so the dev app keeps its own data directory and runs alongside an installed MonoCode.
 
 ### Ubuntu / Debian packages
 
