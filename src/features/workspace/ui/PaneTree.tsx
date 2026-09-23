@@ -64,6 +64,7 @@ type Shared = {
   onSelectFile: (paneId: string, fileId: string) => void;
   onCloseFile: (paneId: string, fileId: string) => void;
   onCloseOtherFiles: (paneId: string, fileId: string) => void;
+  onPinFile?: (fileId: string) => void;
   onReorderFiles: (paneId: string, ids: string[]) => void;
   onFileDirtyChange: (fileId: string, dirty: boolean) => void;
   onFileErrorCountChange: (fileId: string, count: number) => void;
@@ -187,6 +188,7 @@ function PaneTreeComponent({
   onSelectFile,
   onCloseFile,
   onCloseOtherFiles,
+  onPinFile,
   onReorderFiles,
   onFileDirtyChange,
   onFileErrorCountChange,
@@ -406,6 +408,7 @@ function PaneTreeComponent({
                 onSelectFile={onSelectFile}
                 onCloseFile={onCloseFile}
                 onCloseOtherFiles={onCloseOtherFiles}
+                onPinFile={onPinFile}
                 onReorderFiles={onReorderFiles}
                 onDirtyChange={onFileDirtyChange}
                 onErrorCountChange={onFileErrorCountChange}

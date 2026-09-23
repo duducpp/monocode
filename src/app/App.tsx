@@ -136,6 +136,8 @@ import {
   newAgentTab,
   openEditorTab,
   openSessionChangesTab,
+  pinEditorFile,
+  previewWorkspaceFile,
   openTerminalTab,
   removePane,
   resetTabToSession,
@@ -744,6 +746,7 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.fileFocused === other.fileFocused &&
       tab.blank === other.blank &&
       tab.terminal === other.terminal &&
+      tab.previewFileId === other.previewFileId &&
       tab.groupId === other.groupId
     );
   });
@@ -3168,6 +3171,7 @@ export default function App({
       path?: string,
       session?: { sessionId: string; cwd: string },
       changeKind?: GitFileDiffKind,
+      pin = false,
     ) => {
       void (async () => {
         const diffCwd = session?.cwd ?? gitCwdRef.current;
@@ -3189,6 +3193,7 @@ export default function App({
                 session.sessionId,
                 resolved,
                 diffProjectCwd,
+                pin,
               );
             }
             if (loadDiffViewer() === "unified") {
@@ -3204,6 +3209,7 @@ export default function App({
             return openEditorTab(
               tab,
               newFileTab(resolved, diffCwd, true, changeKind, diffProjectCwd),
+              { pin },
             );
           }),
         );
@@ -3215,7 +3221,8 @@ export default function App({
   );
 
   const onOpenWorkingTreeDiff = useCallback(
-    (path: string, kind?: GitFileDiffKind) => onOpenDiff(path, undefined, kind),
+    (path: string, kind?: GitFileDiffKind, pin?: boolean) =>
+      onOpenDiff(path, undefined, kind, pin),
     [onOpenDiff],
   );
 
@@ -3238,7 +3245,7 @@ export default function App({
   }, [activeTabId]);
 
   const onOpenCommit = useCallback(
-    (commit: GitHistoryCommit) => {
+    (commit: GitHistoryCommit, pin?: boolean) => {
       setTabs((prev) =>
         prev.map((tab) =>
           tab.id === activeTabId
@@ -3251,6 +3258,7 @@ export default function App({
                   subject: commit.subject,
                 },
                 sidebarCwdRef.current,
+                pin,
               )
             : tab,
         ),
@@ -5134,6 +5142,7 @@ export default function App({
           undefined,
           fileProjectCwd,
         );
+        const pin = !!options?.pin;
         if (loadFileTabMode() === "workspace") {
           const key = editorTabKey(file);
           const existing = tabsRef.current
@@ -5143,17 +5152,30 @@ export default function App({
             .find(({ pane }) =>
               pane.files.some((open) => editorTabKey(open) === key),
             );
-          if (existing) {
+          const project = file.projectCwd ?? file.cwd;
+          const previewTab = pin
+            ? undefined
+            : tabsRef.current.find((entry) => {
+                const open = previewWorkspaceFile(entry);
+                return (
+                  !!open &&
+                  sameProjectPath(open.projectCwd ?? open.cwd, project)
+                );
+              });
+          const target = existing?.entry ?? previewTab;
+          if (target) {
             setTabs((prev) =>
               prev.map((entry) =>
-                entry.id === existing.entry.id
-                  ? openEditorTab(entry, file)
+                entry.id === target.id
+                  ? openEditorTab(entry, file, { pin })
                   : entry,
               ),
             );
-            activateTab(existing.entry.id, existing.pane.id);
+            activateTab(target.id, existing?.pane.id ?? target.editorPanes[0].id);
           } else {
-            const next = newEditorWorkspaceTab(file);
+            const next = newEditorWorkspaceTab(
+              pin ? file : { ...file, preview: true },
+            );
             appendTab(next, fileProjectCwd);
             setActiveTabId(next.id);
           }
@@ -5177,6 +5199,7 @@ export default function App({
             );
             return openEditorTab(entry, file, {
               split: focusedSession?.blocks.length === 0 ? "left" : "right",
+              pin,
             });
           }),
         );
@@ -5221,15 +5244,27 @@ export default function App({
     [activeTabId],
   );
 
-  const onFileDirtyChange = useCallback((fileId: string, dirty: boolean) => {
-    setDirtyFiles((prev) => {
-      if (prev.has(fileId) === dirty) return prev;
-      const next = new Set(prev);
-      if (dirty) next.add(fileId);
-      else next.delete(fileId);
-      return next;
+  const onPinFile = useCallback((fileId: string) => {
+    setTabs((prev) => {
+      const next = prev.map((tab) => pinEditorFile(tab, fileId));
+      return next.some((tab, index) => tab !== prev[index]) ? next : prev;
     });
   }, []);
+
+  const onFileDirtyChange = useCallback(
+    (fileId: string, dirty: boolean) => {
+      // An edited preview must not be replaced by the next click.
+      if (dirty) onPinFile(fileId);
+      setDirtyFiles((prev) => {
+        if (prev.has(fileId) === dirty) return prev;
+        const next = new Set(prev);
+        if (dirty) next.add(fileId);
+        else next.delete(fileId);
+        return next;
+      });
+    },
+    [onPinFile],
+  );
 
   /** The editor reports 0 as it unmounts, so closed tabs drop out on their own. */
   const onFileErrorCountChange = useCallback(
@@ -8849,6 +8884,7 @@ export default function App({
       onReorder={onReorderTabs}
       onPlaceOnPane={onPlaceTabOnPane}
       onGoToFile={onGoToFile}
+      onPinFile={onPinFile}
       recents={recents}
       onSelectProject={onSelectProject}
     />
@@ -9115,6 +9151,7 @@ export default function App({
                                 onSelectFile={onSelectFileSurface}
                                 onCloseFile={onCloseFile}
                                 onCloseOtherFiles={onCloseOtherFiles}
+                                onPinFile={onPinFile}
                                 onReorderFiles={onReorderFiles}
                                 onFileDirtyChange={onFileDirtyChange}
                                 onFileErrorCountChange={onFileErrorCountChange}
@@ -9528,6 +9565,7 @@ function toTitleTab(
       ),
     ),
     terminal: hasTerminal && harnesses.length === 0,
+    previewFileId: previewWorkspaceFile(tab)?.id,
     groupId: tab.groupId,
   };
 }

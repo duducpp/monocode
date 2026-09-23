@@ -74,6 +74,8 @@ export type Tab = {
   groupId?: string;
   dirty?: boolean;
   terminal?: boolean;
+  /** File id when the whole tab is one preview file; double-click pins it. */
+  previewFileId?: string;
 };
 
 type Props = {
@@ -100,6 +102,7 @@ type Props = {
   onReorder: (ids: string[], movedId?: string) => void;
   onPlaceOnPane?: (tabId: string, targetId: string, edge: PaneEdge) => void;
   onGoToFile?: () => void;
+  onPinFile?: (fileId: string) => void;
   recents?: RecentProject[];
   onSelectProject?: (path: string) => void;
 };
@@ -260,6 +263,7 @@ function TitleTabItem({
   sortable,
   onSelect,
   onClose,
+  onPinFile,
   onContextMenu,
   itemRef,
 }: {
@@ -270,6 +274,7 @@ function TitleTabItem({
   sortable: SortableApi;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onPinFile?: (fileId: string) => void;
   onContextMenu: (id: string, event: ReactMouseEvent<HTMLDivElement>) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
@@ -319,6 +324,9 @@ function TitleTabItem({
           if (sortable.consumeClick()) return;
           onSelect(tab.id);
         }}
+        onDoubleClick={() => {
+          if (tab.previewFileId) onPinFile?.(tab.previewFileId);
+        }}
         className={`relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2 text-left ${
           closable ? "pr-7" : "pr-2.5"
         } ${
@@ -350,7 +358,7 @@ function TitleTabItem({
         <span className="flex min-w-0 flex-1 flex-col justify-center">
           <span className="flex min-w-0 items-center gap-1">
             <span
-              className={`min-w-0 truncate leading-tight ${
+              className={`min-w-0 truncate leading-tight ${tab.previewFileId ? "italic" : ""} ${
                 meta
                   ? "text-[13px] @min-[11rem]:text-[10px] @min-[11rem]:font-medium"
                   : "text-[13px]"
@@ -611,6 +619,7 @@ function TitleBarComponent({
   onReorder,
   onPlaceOnPane,
   onGoToFile,
+  onPinFile,
   recents = [],
   onSelectProject,
 }: Props) {
@@ -961,6 +970,7 @@ function TitleBarComponent({
                     sortable={sortable}
                     onSelect={onSelect}
                     onClose={onClose}
+                    onPinFile={onPinFile}
                     onContextMenu={(tabId, event) =>
                       setTabMenu({
                         tabId,
