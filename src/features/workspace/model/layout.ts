@@ -6,6 +6,7 @@ import {
   type TerminalMetaPatch,
 } from "../../terminal/model/terminalTab";
 import type { HarnessId } from "../../sessions/model/session";
+import { pathKey } from "../../../shared/lib/paths";
 
 /**
  * Split tree for a tab. Same-direction splits share a group so
@@ -260,6 +261,41 @@ export function previewWorkspaceFile(
     return undefined;
   }
   return pane.files[0].preview ? pane.files[0] : undefined;
+}
+
+/**
+ * Workspace file-tab mode: focus the tab already showing `file`, else reuse
+ * the project's preview tab, else insert `created`. Pure over `tabs` so it
+ * runs inside a state updater and sees opens that have not rendered yet.
+ */
+export function openWorkspaceFile(
+  tabs: WorkspaceTab[],
+  file: FilePaneTab,
+  created: WorkspaceTab,
+  insert: (tabs: WorkspaceTab[], tab: WorkspaceTab) => WorkspaceTab[],
+  pin = false,
+): { tabs: WorkspaceTab[]; tabId: string; paneId?: string } {
+  const key = editorTabKey(file);
+  const project = pathKey(file.projectCwd ?? file.cwd);
+  const existing = tabs
+    .flatMap((tab) => tab.editorPanes.map((pane) => ({ tab, pane })))
+    .find(({ pane }) => pane.files.some((open) => editorTabKey(open) === key));
+  const hit =
+    existing?.tab ??
+    (pin
+      ? undefined
+      : tabs.find((tab) => {
+          const open = previewWorkspaceFile(tab);
+          return !!open && pathKey(open.projectCwd ?? open.cwd) === project;
+        }));
+  if (!hit) return { tabs: insert(tabs, created), tabId: created.id };
+  return {
+    tabs: tabs.map((tab) =>
+      tab === hit ? openEditorTab(tab, file, { pin }) : tab,
+    ),
+    tabId: hit.id,
+    paneId: existing?.pane.id ?? hit.editorPanes[0].id,
+  };
 }
 
 /** `path` carries the label: an agent tab has no file behind it. */

@@ -112,7 +112,6 @@ import {
 import {
   closeLeaf,
   closeSurfacePanes,
-  editorTabKey,
   findSurfacePane,
   firstLeafId,
   focusedFileTab,
@@ -137,6 +136,7 @@ import {
   openEditorTab,
   openSessionChangesTab,
   pinEditorFile,
+  openWorkspaceFile,
   previewWorkspaceFile,
   openTerminalTab,
   removePane,
@@ -1927,19 +1927,19 @@ export default function App({
   }, [activeTabId, commitTabVisit, tabs]);
 
   /** `cwd` scopes group inheritance: a tab from another project starts alone. */
+  const insertBesideActive = useCallback(
+    (prev: WorkspaceTab[], tab: WorkspaceTab, cwd?: string) =>
+      insertTabBesideActive(prev, tab, activeTabIdRef.current, (id) =>
+        id === tab.id ? (cwd ? projectName(cwd) : undefined) : projectOfTab(id),
+      ),
+    [projectOfTab],
+  );
+
   const appendTab = useCallback(
     (tab: WorkspaceTab, cwd?: string) => {
-      setTabs((prev) =>
-        insertTabBesideActive(prev, tab, activeTabIdRef.current, (id) =>
-          id === tab.id
-            ? cwd
-              ? projectName(cwd)
-              : undefined
-            : projectOfTab(id),
-        ),
-      );
+      setTabs((prev) => insertBesideActive(prev, tab, cwd));
     },
-    [projectOfTab],
+    [insertBesideActive],
   );
 
   const onSelectProviderAccount = useCallback(
@@ -5144,41 +5144,29 @@ export default function App({
         );
         const pin = !!options?.pin;
         if (loadFileTabMode() === "workspace") {
-          const key = editorTabKey(file);
-          const existing = tabsRef.current
-            .flatMap((entry) =>
-              entry.editorPanes.map((pane) => ({ entry, pane })),
-            )
-            .find(({ pane }) =>
-              pane.files.some((open) => editorTabKey(open) === key),
-            );
-          const project = file.projectCwd ?? file.cwd;
-          const previewTab = pin
-            ? undefined
-            : tabsRef.current.find((entry) => {
-                const open = previewWorkspaceFile(entry);
-                return (
-                  !!open &&
-                  sameProjectPath(open.projectCwd ?? open.cwd, project)
-                );
-              });
-          const target = existing?.entry ?? previewTab;
-          if (target) {
-            setTabs((prev) =>
-              prev.map((entry) =>
-                entry.id === target.id
-                  ? openEditorTab(entry, file, { pin })
-                  : entry,
-              ),
-            );
-            activateTab(target.id, existing?.pane.id ?? target.editorPanes[0].id);
-          } else {
-            const next = newEditorWorkspaceTab(
-              pin ? file : { ...file, preview: true },
-            );
-            appendTab(next, fileProjectCwd);
-            setActiveTabId(next.id);
-          }
+          // Built once: the updater may run twice in StrictMode.
+          const created = newEditorWorkspaceTab(
+            pin ? file : { ...file, preview: true },
+          );
+          let target: { tabId: string; paneId?: string } | undefined;
+          // Select inside the updater, not from `tabsRef`: two opens resuming
+          // before a render would otherwise both miss the preview and append
+          // twice. flushSync runs the updater now so `target` is set below.
+          flushSync(() => {
+            setTabs((prev) => {
+              const result = openWorkspaceFile(
+                prev,
+                file,
+                created,
+                (tabs, tab) => insertBesideActive(tabs, tab, fileProjectCwd),
+                pin,
+              );
+              target = result;
+              return result.tabs;
+            });
+          });
+          if (target?.paneId) activateTab(target.tabId, target.paneId);
+          else if (target) setActiveTabId(target.tabId);
           setProjectTerminalFocused(false);
           setComposerFocused(false);
           if (navigation) {
@@ -5214,7 +5202,7 @@ export default function App({
         setComposerFocused(false);
       })();
     },
-    [activateTab, appendTab],
+    [activateTab, insertBesideActive],
   );
 
   const onOpenPlan = useCallback(

@@ -32,6 +32,7 @@ import {
   openEditorTab,
   openSessionChangesTab,
   pinEditorFile,
+  openWorkspaceFile,
   openTerminalTab,
   paneEdgeFromPoint,
   placePane,
@@ -92,6 +93,38 @@ describe("preview tabs", () => {
       false,
       true,
     ]);
+  });
+
+  it("workspace mode: back-to-back opens share one preview per project", () => {
+    const append = (tabs: WorkspaceTab[], tab: WorkspaceTab) => [
+      ...tabs,
+      tab,
+    ];
+    const open = (
+      tabs: WorkspaceTab[],
+      path: string,
+      cwd: string,
+      pin = false,
+    ) => {
+      const file = newFileTab(path, cwd);
+      const created = newEditorWorkspaceTab(
+        pin ? file : { ...file, preview: true },
+      );
+      return openWorkspaceFile(tabs, file, created, append, pin).tabs;
+    };
+    // Each open reads the previous result, as chained state updaters do.
+    let tabs = open([newTab("s")], "/r/a.ts", "/r");
+    tabs = open(tabs, "/r/b.ts", "/r");
+    tabs = open(tabs, "/other/c.ts", "/other");
+    const files = () =>
+      tabs
+        .slice(1)
+        .map((tab) => tab.editorPanes[0]?.files.map((file) => file.path));
+    expect(files()).toEqual([["/r/b.ts"], ["/other/c.ts"]]);
+
+    tabs = open(tabs, "/r/d.ts", "/r", true);
+    tabs = open(tabs, "/r/e.ts", "/r");
+    expect(files()).toEqual([["/r/e.ts"], ["/other/c.ts"], ["/r/d.ts"]]);
   });
 });
 
