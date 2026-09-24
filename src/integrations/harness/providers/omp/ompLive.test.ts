@@ -1,12 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const transport = vi.hoisted(() => ({
   watchers: new Map<string, (line: string) => void>(),
@@ -861,7 +853,9 @@ describe("OMP workflow dialogs", () => {
       }),
     );
     expect(
-      events.filter((e) => e.type === "question.asked").map((e) => e.questions[0]?.id),
+      events
+        .filter((e) => e.type === "question.asked")
+        .map((e) => e.questions[0]?.id),
     ).toEqual(["ask", "extension"]);
     frame("omp-test", {
       type: "prompt_result",
@@ -896,7 +890,9 @@ describe("OMP workflow dialogs", () => {
     });
     await vi.waitFor(() =>
       expect(
-        events.filter((e) => e.type === "question.asked").map((e) => e.questions[0]?.id),
+        events
+          .filter((e) => e.type === "question.asked")
+          .map((e) => e.questions[0]?.id),
       ).toEqual(["aborted", "next", "later"]),
     );
     expect(transport.requests.map((r) => r.command)).not.toContainEqual(
@@ -977,7 +973,10 @@ describe("OMP workflow dialogs", () => {
     const running = await started();
     for (const [id, extra] of [
       ["question", { method: "input", title: "Instructions" }],
-      ["approval", { method: "select", title: "Allow?", options: ["Approve", "Deny"] }],
+      [
+        "approval",
+        { method: "select", title: "Allow?", options: ["Approve", "Deny"] },
+      ],
       ["kept", { method: "input", title: "Unrelated" }],
     ] as const) {
       frame("omp-test", { type: "extension_ui_request", id, ...extra });
@@ -1014,26 +1013,25 @@ describe("OMP workflow dialogs", () => {
 
   it("closes dialogs when their omp deadline passes", async () => {
     const running = await started();
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    onTestFinished(() => vi.useRealTimers());
-    frame("omp-test", {
-      type: "extension_ui_request",
-      id: "question",
-      method: "select",
-      title: "Which database?",
-      options: ["Postgres", "MySQL"],
-      timeout: 20,
-    });
-    frame("omp-test", {
-      type: "extension_ui_request",
-      id: "approval",
-      method: "confirm",
-      title: "Allow?",
-      message: "Run it",
-      timeout: 20,
-    });
-    await vi.advanceTimersByTimeAsync(20);
-    await vi.waitFor(() => {
+    vi.useFakeTimers();
+    try {
+      frame("omp-test", {
+        type: "extension_ui_request",
+        id: "question",
+        method: "select",
+        title: "Which database?",
+        options: ["Postgres", "MySQL"],
+        timeout: 20,
+      });
+      frame("omp-test", {
+        type: "extension_ui_request",
+        id: "approval",
+        method: "confirm",
+        title: "Allow?",
+        message: "Run it",
+        timeout: 20,
+      });
+      await vi.advanceTimersByTimeAsync(20);
       for (const id of ["question", "approval"]) {
         expect(replies()).toContainEqual({
           type: "extension_ui_response",
@@ -1042,39 +1040,42 @@ describe("OMP workflow dialogs", () => {
           timedOut: true,
         });
       }
-    });
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "question.resolved", decision: "skipped" }),
-    );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "question.resolved",
+          decision: "skipped",
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
     await finish(running);
   });
 
   it("keeps an answer given before the omp deadline", async () => {
     const running = await started();
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    onTestFinished(() => vi.useRealTimers());
-    frame("omp-test", {
-      type: "extension_ui_request",
-      id: "question",
-      method: "select",
-      title: "Which database?",
-      options: ["Postgres", "MySQL"],
-      timeout: 40,
-    });
-    const question = events.find((e) => e.type === "question.asked");
-    respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
-      kind: "answered",
-      answers: { question: ["1"] },
-    });
-    await vi.waitFor(() =>
-      expect(replies()).toContainEqual(
-        expect.objectContaining({ id: "question" }),
-      ),
-    );
-    await vi.advanceTimersByTimeAsync(40);
-    expect(replies().filter((c) => c.id === "question")).toEqual([
-      { type: "extension_ui_response", id: "question", value: "MySQL" },
-    ]);
+    vi.useFakeTimers();
+    try {
+      frame("omp-test", {
+        type: "extension_ui_request",
+        id: "question",
+        method: "select",
+        title: "Which database?",
+        options: ["Postgres", "MySQL"],
+        timeout: 40,
+      });
+      const question = events.find((e) => e.type === "question.asked");
+      respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
+        kind: "answered",
+        answers: { question: ["1"] },
+      });
+      await vi.advanceTimersByTimeAsync(40);
+      expect(replies().filter((c) => c.id === "question")).toEqual([
+        { type: "extension_ui_response", id: "question", value: "MySQL" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
     await finish(running);
   });
 });

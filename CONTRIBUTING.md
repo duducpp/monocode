@@ -47,8 +47,6 @@ npm run check
 
 That runs what CI runs: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and `cargo test`. If it’s green locally it should be green on GitHub. `npm run check:web` and `npm run check:rust` run the two halves separately when you only touched one side.
 
-`npm run test:integration` runs opt-in suites against real harness binaries (currently omp over `--mode rpc-ui`). They skip when the binary is missing, and model-dependent cases skip when it has no model configured. They are not part of `npm run check`.
-
 ## New providers
 
 I’m pausing new harnesses until the current ones share the same patterns - session lifecycle, catalog probes, usage, approvals, and how slash commands and skills are wired. A PR that adds another provider will be closed for now, even if the work is good. Fixes, tests, and protocol bugs on Claude, Codex, Cursor, Grok, OpenCode, Antigravity, Pi, omp, fx, and Hermes Agent are still the best kind of contribution.
