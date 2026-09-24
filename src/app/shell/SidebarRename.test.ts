@@ -1516,6 +1516,7 @@ describe("collapsed rail Inbox actions", () => {
       expect(props.onRemoveProject).toHaveBeenCalledWith("/workspace/other", {
         purgeData: true,
       });
+      expect(document.activeElement).toBe(projectSearchInput());
     },
   );
 

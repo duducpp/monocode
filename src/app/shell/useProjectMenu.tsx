@@ -560,15 +560,22 @@ export function useProjectMenu({
             setProjectGroupAssignment(removing.path, null);
             onRemoveProject?.(removing.path, { purgeData: true });
             setRemoving(null);
+            restoreFocus();
           }}
-          onCancel={() => setRemoving(null)}
+          onCancel={() => {
+            setRemoving(null);
+            restoreFocus();
+          }}
         />
       ) : null}
       {backgroundProject ? (
         <ProjectBackgroundDialog
           project={backgroundProject.project}
           name={backgroundProject.name}
-          onClose={() => setBackgroundProject(null)}
+          onClose={() => {
+            setBackgroundProject(null);
+            restoreFocus();
+          }}
         />
       ) : null}
     </>
