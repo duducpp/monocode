@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 const transport = vi.hoisted(() => ({
   watchers: new Map<string, (line: string) => void>(),
@@ -36,7 +44,11 @@ import {
   forgetOmpSession,
 } from "./omp";
 import { sendPiTurn, steerPiTurn, forgetPiSession } from "../pi/pi";
-import { ompCommandProvider, respondQuestion } from "../pi/piFamily";
+import {
+  ompCommandProvider,
+  respondApproval,
+  respondQuestion,
+} from "../pi/piFamily";
 import { OMP_FLAVOR } from "../pi/piFlavor";
 import type { HarnessEvent, SendTurnInput } from "../../core/types";
 import { applyHarnessEvent } from "../../core/apply";
@@ -914,5 +926,155 @@ describe("OMP workflow dialogs", () => {
       cancelled: true,
     });
     expect(events.some((e) => e.type === "question.resolved")).toBe(true);
+  });
+
+  const replies = () => transport.requests.map((r) => r.command);
+  const finish = async (running: {
+    turn: Promise<unknown>;
+    request: { id?: unknown };
+  }) => {
+    frame("omp-test", {
+      type: "prompt_result",
+      id: running.request.id,
+      agentInvoked: false,
+    });
+    await running.turn;
+  };
+
+  it("shows omp's Approve/Deny prompt as an approval card", async () => {
+    const running = await started();
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "approve",
+      method: "select",
+      title: "Allow bash: rm -rf dist?",
+      options: ["Approve", "Deny"],
+    });
+    const approval = events.find((e) => e.type === "approval.requested");
+    expect(approval).toMatchObject({ title: "Allow bash: rm -rf dist?" });
+    expect(events.some((e) => e.type === "question.asked")).toBe(false);
+    respondApproval(OMP_FLAVOR, "omp-test", approval!.requestId, "allow");
+    await vi.waitFor(() =>
+      expect(replies()).toContainEqual({
+        type: "extension_ui_response",
+        id: "approve",
+        value: "Approve",
+      }),
+    );
+    // Any other option list is a real question, even with the same labels.
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "question",
+      method: "select",
+      title: "Next step?",
+      options: ["Approve", "Deny", "Ask later"],
+    });
+    expect(events.filter((e) => e.type === "question.asked")).toHaveLength(1);
+    await finish(running);
+  });
+
+  it("closes the question or approval an omp cancel targets", async () => {
+    const running = await started();
+    for (const [id, extra] of [
+      ["question", { method: "input", title: "Instructions" }],
+      ["approval", { method: "select", title: "Allow?", options: ["Approve", "Deny"] }],
+      ["kept", { method: "input", title: "Unrelated" }],
+    ] as const) {
+      frame("omp-test", { type: "extension_ui_request", id, ...extra });
+    }
+    // omp gives each cancel its own id and names the dialog in `targetId`.
+    for (const targetId of ["question", "approval"]) {
+      frame("omp-test", {
+        type: "extension_ui_request",
+        id: `cancel-${targetId}`,
+        method: "cancel",
+        targetId,
+      });
+    }
+    await vi.waitFor(() => {
+      expect(replies()).toContainEqual({
+        type: "extension_ui_response",
+        id: "question",
+        cancelled: true,
+      });
+      expect(replies()).toContainEqual({
+        type: "extension_ui_response",
+        id: "approval",
+        cancelled: true,
+      });
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "approval.resolved", decision: "deny" }),
+    );
+    expect(replies()).not.toContainEqual(
+      expect.objectContaining({ id: "kept" }),
+    );
+    await finish(running);
+  });
+
+  it("closes dialogs when their omp deadline passes", async () => {
+    const running = await started();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => vi.useRealTimers());
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "question",
+      method: "select",
+      title: "Which database?",
+      options: ["Postgres", "MySQL"],
+      timeout: 20,
+    });
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "approval",
+      method: "confirm",
+      title: "Allow?",
+      message: "Run it",
+      timeout: 20,
+    });
+    await vi.advanceTimersByTimeAsync(20);
+    await vi.waitFor(() => {
+      for (const id of ["question", "approval"]) {
+        expect(replies()).toContainEqual({
+          type: "extension_ui_response",
+          id,
+          cancelled: true,
+          timedOut: true,
+        });
+      }
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "question.resolved", decision: "skipped" }),
+    );
+    await finish(running);
+  });
+
+  it("keeps an answer given before the omp deadline", async () => {
+    const running = await started();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => vi.useRealTimers());
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "question",
+      method: "select",
+      title: "Which database?",
+      options: ["Postgres", "MySQL"],
+      timeout: 40,
+    });
+    const question = events.find((e) => e.type === "question.asked");
+    respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
+      kind: "answered",
+      answers: { question: ["1"] },
+    });
+    await vi.waitFor(() =>
+      expect(replies()).toContainEqual(
+        expect.objectContaining({ id: "question" }),
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(40);
+    expect(replies().filter((c) => c.id === "question")).toEqual([
+      { type: "extension_ui_response", id: "question", value: "MySQL" },
+    ]);
+    await finish(running);
   });
 });

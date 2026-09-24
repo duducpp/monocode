@@ -33,6 +33,7 @@ import {
   extensionUiTitle,
   forkMessagesFromRpcData,
   isAgentSettled,
+  isOmpApprovalSelect,
   isPiThinkingLevel,
   mergeToolInput,
   needsExtensionUiReply,
@@ -739,8 +740,13 @@ function handleFrame(
     rec.type === "extension_ui_request" &&
     rec.method === "cancel"
   ) {
+    // omp's cancel carries its own id; the dialog it closes is `targetId`.
+    const target = stringField(rec, "targetId");
     for (const question of live.questions.values()) {
-      if (question.id === rec.id) question.resolve({ kind: "skipped" });
+      if (question.id === target) question.resolve({ kind: "skipped" });
+    }
+    for (const approval of live.approvals.values()) {
+      if (approval.request.id === target) approval.resolve("deny");
     }
     return;
   }
@@ -1028,6 +1034,7 @@ async function handleExtensionUi(
 
   if (
     flavor.id === "omp" &&
+    !isOmpApprovalSelect(request) &&
     (request.method === "select" ||
       request.method === "input" ||
       request.method === "editor")
@@ -1063,6 +1070,9 @@ async function handleExtensionUi(
     const replyPromise = new Promise<UserQuestionReply>((resolve) => {
       live.questions.set(uiId, { id: request.id, resolve });
     });
+    const expired = enforceDeadline(request, () =>
+      live.questions.get(uiId)?.resolve({ kind: "skipped" }),
+    );
     live.onEvent({
       type: "question.asked",
       requestId: uiId,
@@ -1095,6 +1105,7 @@ async function handleExtensionUi(
       ],
     });
     const reply = await replyPromise;
+    const timedOut = expired();
     live.questions.delete(uiId);
     let value: string | undefined;
     if (reply.kind === "answered") {
@@ -1121,7 +1132,9 @@ async function handleExtensionUi(
       JSON.stringify({
         type: "extension_ui_response",
         id: request.id,
-        ...(value === undefined ? { cancelled: true } : { value }),
+        ...(value === undefined
+          ? { cancelled: true, ...(timedOut ? { timedOut: true } : {}) }
+          : { value }),
       }),
     ).catch(() => undefined);
     return;
@@ -1134,15 +1147,46 @@ async function handleExtensionUi(
     title: extensionUiTitle(request),
     kind: "other",
   });
-  const decision = await new Promise<ApprovalDecision>((resolve) => {
+  const approval = new Promise<ApprovalDecision>((resolve) => {
     live.approvals.set(uiId, { request, resolve });
   });
+  const expired = enforceDeadline(request, () =>
+    live.approvals.get(uiId)?.resolve("deny"),
+  );
+  const decision = await approval;
+  const timedOut = expired();
   live.approvals.delete(uiId);
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
   await writeChild(
     sessionId,
-    JSON.stringify(extensionUiResponse(request, decision)),
+    JSON.stringify(
+      timedOut
+        ? { ...extensionUiResponse(request, "deny"), timedOut: true }
+        : extensionUiResponse(request, decision),
+    ),
   ).catch(() => undefined);
+}
+
+/**
+ * Closes a dialog when omp's deadline passes, as the RPC contract requires.
+ * Returns a check that stops the timer and reports whether it fired.
+ */
+function enforceDeadline(
+  request: PiExtensionUiRequest,
+  expire: () => void,
+): () => boolean {
+  if (!("timeout" in request) || request.timeout === undefined) {
+    return () => false;
+  }
+  let fired = false;
+  const timer = setTimeout(() => {
+    fired = true;
+    expire();
+  }, request.timeout);
+  return () => {
+    clearTimeout(timer);
+    return fired;
+  };
 }
 
 async function applyModel(

@@ -40,6 +40,16 @@ export type PiImage = {
 /** omp `ask` fallback row that opens a free-text editor (tools/ask.ts). */
 export const OMP_OTHER_OPTION = "Other (type your own)";
 
+/** omp's tool approval prompt (extensions/wrapper.ts): shown as an approval. */
+export function isOmpApprovalSelect(request: PiExtensionUiRequest): boolean {
+  return (
+    request.method === "select" &&
+    request.options.length === 2 &&
+    request.options[0] === "Approve" &&
+    request.options[1] === "Deny"
+  );
+}
+
 export type PiExtensionUiRequest =
   | {
       id: string;
@@ -48,12 +58,14 @@ export type PiExtensionUiRequest =
       options: string[];
       /** omp `optionDetails`, index-aligned with `options`. */
       descriptions?: (string | undefined)[];
+      timeout?: number;
     }
   | {
       id: string;
       method: "confirm";
       title: string;
       message: string;
+      timeout?: number;
     }
   | {
       id: string;
@@ -61,6 +73,7 @@ export type PiExtensionUiRequest =
       title: string;
       /** omp opens its `ask` "Other" editor with `promptStyle: true`. */
       promptStyle?: boolean;
+      timeout?: number;
     }
   | {
       id: string;
@@ -276,6 +289,11 @@ export function parseExtensionUiRequest(
   const id = stringField(rec, "id");
   const method = stringField(rec, "method");
   if (!id || !method) return null;
+  // omp dialogs may carry a deadline; the host must enforce it (omp.sh/docs/rpc).
+  const timeout =
+    typeof rec.timeout === "number" && rec.timeout > 0
+      ? { timeout: rec.timeout }
+      : {};
   if (method === "select") {
     const options = Array.isArray(rec.options)
       ? rec.options.filter((item): item is string => typeof item === "string")
@@ -295,6 +313,7 @@ export function parseExtensionUiRequest(
             ),
           }
         : {}),
+      ...timeout,
     };
   }
   if (method === "confirm") {
@@ -303,6 +322,7 @@ export function parseExtensionUiRequest(
       method,
       title: stringField(rec, "title") ?? "Confirm",
       message: stringField(rec, "message") ?? "",
+      ...timeout,
     };
   }
   if (method === "input" || method === "editor") {
@@ -311,6 +331,7 @@ export function parseExtensionUiRequest(
       method,
       title: stringField(rec, "title") ?? method,
       ...(rec.promptStyle === true ? { promptStyle: true } : {}),
+      ...timeout,
     };
   }
   if (
