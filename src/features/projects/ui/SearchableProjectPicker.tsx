@@ -149,19 +149,27 @@ export function SearchableProjectPicker({
   };
 
   const onPickerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!(event.target instanceof HTMLInputElement)) return;
+    const target = event.target;
+    const rows = listRef.current?.children;
     if (
       onProjectContextMenu &&
+      rows &&
       (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
     ) {
-      const project = filteredProjects[active];
-      const row = listRef.current?.children[active];
+      // A Tab-focused row opens its own menu; the search input opens the highlighted one.
+      const index =
+        target instanceof HTMLInputElement
+          ? active
+          : Array.prototype.indexOf.call(rows, target);
+      const project = filteredProjects[index];
+      const row = rows[index];
       if (!project || !row) return;
       event.preventDefault();
       const rect = row.getBoundingClientRect();
       onProjectContextMenu(project.path, rect.left, rect.bottom, searchRef.current);
       return;
     }
+    if (!(target instanceof HTMLInputElement)) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (filteredProjects.length === 0) return;
