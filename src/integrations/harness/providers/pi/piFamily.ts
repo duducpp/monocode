@@ -1018,12 +1018,6 @@ async function handleExtensionUi(
     return;
   }
 
-  // Text typed next to ask's options only answers the editor omp opens right
-  // after our "Other" reply. omp skips that editor when the ask aborts, so any
-  // other request (or turn end) drops the text instead of misrouting it.
-  const otherText = live.customInput;
-  live.customInput = undefined;
-
   if (live.cancelled || live.muteUpdates) {
     await writeChild(
       sessionId,
@@ -1038,11 +1032,16 @@ async function handleExtensionUi(
       request.method === "input" ||
       request.method === "editor")
   ) {
+    // Text typed next to ask's options answers the editor omp opens after our
+    // "Other" reply. Extension UI requests (e.g. approvals for parallel tools)
+    // can arrive in between, so they leave the text alone.
+    const otherText = live.customInput;
     if (
       request.method === "editor" &&
       request.promptStyle &&
       otherText !== undefined
     ) {
+      live.customInput = undefined;
       await writeChild(
         sessionId,
         JSON.stringify({
@@ -1057,6 +1056,9 @@ async function handleExtensionUi(
     // editor. Fold both into one form: a free-text field instead of the row.
     const hasOther =
       request.method === "select" && request.options.includes(OMP_OTHER_OPTION);
+    // `ask` is exclusive: a new ask select means the previous ask ended (an
+    // aborted ask never opens its editor), so its text must not carry over.
+    if (hasOther) live.customInput = undefined;
     const uiId = live.nextApprovalUiId++;
     const replyPromise = new Promise<UserQuestionReply>((resolve) => {
       live.questions.set(uiId, { id: request.id, resolve });

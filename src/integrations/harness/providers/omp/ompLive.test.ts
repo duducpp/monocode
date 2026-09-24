@@ -803,43 +803,89 @@ describe("OMP workflow dialogs", () => {
     await running.turn;
   });
 
-  it("drops Other text when omp skips ask's editor", async () => {
-    const running = await started();
+  async function answerOther(id: string) {
     frame("omp-test", {
       type: "extension_ui_request",
-      id: "ask",
+      id,
       method: "select",
       title: "Which database?",
       options: ["Postgres", "Other (type your own)"],
     });
-    const question = events.find((e) => e.type === "question.asked");
+    const question = events.findLast((e) => e.type === "question.asked");
     respondQuestion(OMP_FLAVOR, "omp-test", question!.requestId, {
       kind: "answered",
-      answers: { ask: ["__custom__"] },
-      custom: { ask: "SQLite" },
+      answers: { [id]: ["__custom__"] },
+      custom: { [id]: "SQLite" },
     });
     await vi.waitFor(() =>
       expect(transport.requests.at(-1)?.command).toMatchObject({
-        id: "ask",
+        id,
         value: "Other (type your own)",
       }),
     );
-    // The ask aborted before its editor; a later editor must reach the user.
-    for (const id of ["unrelated", "later"]) {
-      frame("omp-test", {
-        type: "extension_ui_request",
-        id,
-        method: id === "unrelated" ? "input" : "editor",
-        title: "Next",
-        promptStyle: true,
-      });
-    }
+  }
+
+  it("keeps Other text across extension UI requests before ask's editor", async () => {
+    const running = await started();
+    await answerOther("ask");
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "extension",
+      method: "input",
+      title: "Extension prompt",
+    });
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "other",
+      method: "editor",
+      title: "Which database?",
+      promptStyle: true,
+    });
+    await vi.waitFor(() =>
+      expect(transport.requests.at(-1)?.command).toEqual({
+        type: "extension_ui_response",
+        id: "other",
+        value: "SQLite",
+      }),
+    );
+    expect(
+      events.filter((e) => e.type === "question.asked").map((e) => e.questions[0]?.id),
+    ).toEqual(["ask", "extension"]);
+    frame("omp-test", {
+      type: "prompt_result",
+      id: running.request.id,
+      agentInvoked: false,
+    });
+    await running.turn;
+  });
+
+  it("drops Other text when the next ask starts without its editor", async () => {
+    const running = await started();
+    // This ask aborts after the "Other" reply, so omp never opens its editor.
+    await answerOther("aborted");
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "next",
+      method: "select",
+      title: "Which region?",
+      options: ["eu", "Other (type your own)"],
+    });
+    const next = events.findLast((e) => e.type === "question.asked");
+    respondQuestion(OMP_FLAVOR, "omp-test", next!.requestId, {
+      kind: "answered",
+      answers: { next: ["0"] },
+    });
+    frame("omp-test", {
+      type: "extension_ui_request",
+      id: "later",
+      method: "editor",
+      title: "Notes",
+      promptStyle: true,
+    });
     await vi.waitFor(() =>
       expect(
-        events
-          .filter((e) => e.type === "question.asked")
-          .map((e) => e.questions[0]?.id),
-      ).toEqual(["ask", "unrelated", "later"]),
+        events.filter((e) => e.type === "question.asked").map((e) => e.questions[0]?.id),
+      ).toEqual(["aborted", "next", "later"]),
     );
     expect(transport.requests.map((r) => r.command)).not.toContainEqual(
       expect.objectContaining({ value: "SQLite" }),
